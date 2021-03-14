@@ -1,7 +1,8 @@
 import argparse
 import imutils
 import cv2
-import numpy
+import matplotlib.pyplot as plt
+import numpy as np
 import time
 import datetime
 
@@ -12,33 +13,51 @@ ap.add_argument("-a", "--min-area", type=int, default=500, help="minimum area si
 args = vars(ap.parse_args())
 
 # 读取视频文件
-camera = cv2.VideoCapture("C:\\Users\\panyi\\Desktop\\Work\\视频\\原视频\\00000002869000000.mp4")
+#camera = cv2.VideoCapture("C:\\Users\\panyi\\Desktop\\Work\\视频\\实验视频\\晴天背光 左上 慢速 标清.mp4")
+camera = cv2.VideoCapture("C:\\Users\\panyi\\Desktop\\Work\\视频\\原视频\\00000002704000000.mp4")
 
 # 初始化视频流的帧变量
 gray = None
 blank = None
+comp_Frame = None
+frames = 0
 
 # 遍历视频的每一帧
 while True:
 
     # 获取当前帧并初始化状态信息
-    (grabbed, frame) = camera.read()
+    ret, frame = camera.read()
     text = "Unoccupied"
-    isBlank = True
 
-    # 备份一遍原视频文件
-    (grabbed, original) = camera.read()
-
-    # 视频播放完，结束循环
-    if not grabbed:
-        break
+    # 视频播放完，循环播放
+    if not ret:
+        gray = None
+        blank = None
+        comp_Frame = None
+        frames = 0
+        print('Video Replay')
+        camera.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        continue
 
     # 在调整当前帧前存储前一帧
     prev_Frame = gray
 
+    # 检测是否需要抓取背景帧
+    if frames > 10:
+        if isBlank:
+            if prev_Frame is not None:
+                comp_Frame = gray
+                print('Blank Found')
+                # camera.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                # continue
+    isBlank = True
+
+    # 备份一遍原视频文件
+    original = imutils.resize(frame, width=500)
+
     # 调整该帧的大小，转换为灰阶图像并高斯模糊
     frame = imutils.resize(frame, width=500)
-    original = imutils.resize(original, width=500)
+    # frame = cv2.blur(frame, ksize=(10, 25))
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
@@ -46,21 +65,31 @@ while True:
     if prev_Frame is None:
         continue
 
-    # 计算当前帧和前一帧的不同
-    if blank is None:
-        frameDelta = cv2.absdiff(prev_Frame, gray)
-        thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
-    # 计算当前帧和背景帧的不同
-    else:
-        frameDelta = cv2.absdiff(blank, gray)
-        thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
+    # 没有抓取到背景帧时：
+    if comp_Frame is None:
 
-    # 扩展阀值图像填充孔洞，然后找到阀值图像上的轮廓
-    thresh = cv2.dilate(thresh, None, iterations=2)
-    if blank is None:
+        # 计算当前帧和前一帧的不同
+        frameDelta = cv2.absdiff(prev_Frame, gray)
+
+        # 扩展阀值图像填充孔洞
+        thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
+        thresh = cv2.dilate(thresh, None, iterations=2)
+
+        # 找到阀值图像上的轮廓
         (contours, _) = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 获得背景帧：
     else:
-        (contours, _) = cv2.findContours(blank.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # 计算当前帧和背景帧的不同
+        frameDelta = cv2.absdiff(comp_Frame, gray)
+
+        # 扩展阀值图像填充孔洞
+        thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
+        thresh = cv2.dilate(thresh, None, iterations=2)
+
+        # 找到阀值图像上的轮廓
+        (contours, _) = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # 遍历轮廓
     for c in contours:
@@ -91,9 +120,13 @@ while True:
     cv2.imshow("Thresh", thresh)
     cv2.imshow("Frame Delta", frameDelta)
     key = cv2.waitKey(1) & 0xFF
+    frames += 1
+    if frames % 30 == 0:
+        print(frames/30)
 
     # 如果q键被按下，跳出循环
-    #  if key == ord("q"):break
+    # key = cv2.waitKey(1) & 0xFF
+    # if key == ord("q"):break
 
 # 清理摄像机资源
 camera.release()
